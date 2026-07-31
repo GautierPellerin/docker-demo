@@ -1,0 +1,69 @@
+include:
+  - path: compose.yaml
+
+services:
+  volume-init:
+    image: ${ORO_IMAGE}:${ORO_IMAGE_TAG}
+    command:
+      - "true"
+    env_file: .env
+    volumes:
+      - oro_app:/var/www/oro
+    restart: "no"
+
+  web-init:
+    image: ${ORO_IMAGE}:${ORO_IMAGE_TAG}
+    command:
+      - -c
+      - |
+        echo "$(jq '.properties.sites.propertyNames.pattern = ".*"' /opt/oro-nginx-tool/variables.schema.json)" > /opt/oro-nginx-tool/variables.schema.json
+        /usr/local/bin/docker-entrypoint.sh nginx-init && sed -i '/gridfs/d; /mongo/d' /opt/oro-nginx/etc/sites-available/*.conf
+    env_file: .env
+    depends_on:
+      php-fpm-app:
+        condition: service_healthy
+      ws:
+        condition: service_started
+      volume-init:
+        condition: service_completed_successfully
+    volumes:
+      - nginx:/opt/oro-nginx
+    restart: "no"
+
+  install:
+    image: ${ORO_IMAGE}:${ORO_IMAGE_TAG}
+    command: install ${ORO_INSTALL_OPTIONS}
+    user: ${ORO_USER_RUNTIME}
+    env_file: .env
+    environment:
+      ORO_SAMPLE_DATA: ${ORO_SAMPLE_DATA:-n}
+    depends_on:
+      db:
+        condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
+    volumes:
+      - oro_app:/var/www/oro
+      - cache:/var/www/oro/var/cache
+      - public_storage:/var/www/oro/public/media
+      - private_storage:/var/www/oro/var/data
+    restart: "no"
+
+  restore:
+    image: ${ORO_IMAGE_INIT}${ORO_LANGUAGE_SUFFIX-}:${ORO_IMAGE_TAG_OLD-${ORO_IMAGE_TAG}}
+    command: restore
+    user: ${ORO_USER_RUNTIME}
+    env_file: .env
+    environment:
+      ORO_ENV: ${ORO_ENV:-prod}
+    depends_on:
+      db:
+        condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
+    volumes:
+      - oro_app:/var/www/oro
+      - cache:/var/www/oro/var/cache
+      - public_storage:/var/www/oro/public/media
+      - private_storage:/var/www/oro/var/data
+    restart: "no"
